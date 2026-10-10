@@ -58,3 +58,5 @@ http://localhost:3000
 
 - **Full-Stack Gemini Backend (`server.ts`)**:
   Provides `/api/analyze-speech` for deep linguistic audits, grammar corrections, and actionable vocal coaching drills.
+# SpeakTwin-AI
+AI-powered speech analysis and personalized speech improvement system.
