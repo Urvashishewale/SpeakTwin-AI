@@ -11,9 +11,10 @@ export interface WrongWordItem {
   word: string;
   context: string;
   timestamp?: number;
-  issue: 'Grammar' | 'Mispronounced' | 'Stutter' | 'Colloquialism' | 'Awkward';
+  issue: 'Grammar' | 'Mispronounced' | 'Stutter' | 'Colloquialism' | 'Awkward' | 'Potential Slip' | 'Unnecessary Word' | 'Repeated Word';
   suggestion: string;
   rightAlternative?: string;
+  confidence?: 'Tentative' | 'Likely' | 'Confirmed';
 }
 
 export interface FillerWordItem {
@@ -42,9 +43,10 @@ export interface GlobalToneMetrics {
 export interface TranscriptWord {
   id: string;
   word: string;
-  timestamp: number;
+  timestamp?: number; // Optional: only populated when real acoustic/ASR timestamp is provided
   isFiller: boolean;
-  isWrong: boolean;
+  isWrong: boolean; // Maintained for backwards compatibility
+  isPotentialIssue?: boolean;
   issue?: string;
   suggestion?: string;
   pauseAfter?: number; // duration if a pause occurred right after this word

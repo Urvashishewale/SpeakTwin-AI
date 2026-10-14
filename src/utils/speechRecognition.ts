@@ -1,10 +1,54 @@
 import { SupportedLanguage, TranscriptWord } from '../types/audio';
 
-const FILLER_WORDS: Record<string, string[]> = {
-  'en-US': ['um', 'uh', 'er', 'ah', 'like', 'actually', 'basically', 'literally', 'you know', 'i mean', 'so yeah', 'sort of', 'kind of', 'right', 'honestly'],
+// Standard filler word lexicons (exact tokens or multi-word phrases)
+const FILLER_SINGLE_WORDS: Record<string, string[]> = {
+  'en-US': ['um', 'uh', 'er', 'ah', 'basically', 'actually', 'literally'],
   'mr-IN': ['म्हणजे', 'तर', 'वगैरे', 'असं', 'मग', 'ना', 'बरोबर', 'काय', 'बघूया', 'आणि', 'हो ना'],
   'hi-IN': ['मतलब', 'यानि', 'जैसे', 'तो', 'फिर', 'वगैरह', 'हाँ', 'ना', 'बोले तो', 'अरे'],
 };
+
+const FILLER_PHRASES: Record<string, string[][]> = {
+  'en-US': [
+    ['you', 'know'],
+    ['i', 'mean'],
+    ['so', 'yeah'],
+    ['sort', 'of'],
+    ['kind', 'of'],
+  ],
+  'mr-IN': [],
+  'hi-IN': [],
+};
+
+// Verbs/pronouns that indicate "like" is being used as a normal verb/preposition, NOT a filler
+const LIKE_NORMAL_PRECEDING_WORDS = new Set([
+  'i',
+  'we',
+  'they',
+  'you',
+  'he',
+  'she',
+  'it',
+  'would',
+  'could',
+  'should',
+  'look',
+  'looks',
+  'looked',
+  'sound',
+  'sounds',
+  'sounded',
+  'feel',
+  'feels',
+  'felt',
+  'seem',
+  'seems',
+  'seemed',
+  'something',
+  'nothing',
+  'anything',
+  'someone',
+  'anyone',
+]);
 
 export class SpeechRecognitionEngine {
   private recognition: any = null;
@@ -19,7 +63,10 @@ export class SpeechRecognitionEngine {
   private onErrorCallback?: (err: string) => void;
 
   public static isSupported(): boolean {
-    return typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    return (
+      typeof window !== 'undefined' &&
+      Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+    );
   }
 
   public setLanguage(lang: SupportedLanguage) {
@@ -44,10 +91,15 @@ export class SpeechRecognitionEngine {
     this.fullTranscript = '';
     this.startTime = performance.now();
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      if (onError) onError('Speech Recognition is not natively supported in this browser. You can still upload any audio file or use the built-in demo.');
+      if (onError) {
+        onError(
+          'Speech Recognition is not natively supported in this browser. You can still upload any audio file or use the built-in demo.'
+        );
+      }
       return;
     }
 
@@ -59,11 +111,13 @@ export class SpeechRecognitionEngine {
       this.recognition.maxAlternatives = 1;
 
       this.recognition.onresult = (event: any) => {
-        let interimTranscript = '';
         let finalTranscript = '';
+        let interimTranscript = '';
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const piece = event.results[i][0].transcript;
+        // Safely iterate through all cumulative results up to event.results.length
+        // to avoid duplicating phrases during interim-to-final transitions.
+        for (let i = 0; i < event.results.length; ++i) {
+          const piece = event.results[i][0]?.transcript || '';
           if (event.results[i].isFinal) {
             finalTranscript += piece + ' ';
           } else {
@@ -71,28 +125,27 @@ export class SpeechRecognitionEngine {
           }
         }
 
-        if (finalTranscript.trim()) {
-          this.fullTranscript = (this.fullTranscript + ' ' + finalTranscript).trim();
+        const consolidated = (finalTranscript + interimTranscript).trim();
+
+        if (consolidated) {
+          this.fullTranscript = consolidated;
           this.processWords(this.fullTranscript);
-        } else if (interimTranscript.trim()) {
-          const combined = (this.fullTranscript + ' ' + interimTranscript).trim();
-          this.processWords(combined);
         }
       };
 
       this.recognition.onerror = (event: any) => {
-        // Ignore aborted error if intentional
+        // Ignore normal aborted or no-speech events
         if (event.error === 'aborted' || event.error === 'no-speech') return;
         this.onErrorCallback?.(`Speech recognition notice: ${event.error}`);
       };
 
       this.recognition.onend = () => {
-        // Auto restart if still supposed to be listening (Chrome often stops after silence)
+        // Auto-restart if listening was not explicitly stopped (browser silence timeout handling)
         if (this.isListening && this.recognition) {
           try {
             this.recognition.start();
           } catch {
-            // Already started or restarting
+            // Already active or restarting
           }
         }
       };
@@ -104,29 +157,112 @@ export class SpeechRecognitionEngine {
     }
   }
 
-  private processWords(text: string) {
+  /**
+   * Processes the verbatim recognized text into TranscriptWord tokens without
+   * fabricating timestamps or inventing words not uttered by the user.
+   */
+  public processWords(text: string): TranscriptWord[] {
+    if (!text.trim()) {
+      this.wordsHistory = [];
+      this.onTranscriptUpdate?.('', []);
+      this.onWpmUpdate?.(0);
+      return [];
+    }
+
     const rawTokens = text.split(/\s+/).filter(Boolean);
-    const fillers = FILLER_WORDS[this.lang] || FILLER_WORDS['en-US'];
+    const singleFillers = new Set(FILLER_SINGLE_WORDS[this.lang] || FILLER_SINGLE_WORDS['en-US']);
+    const phraseFillers = FILLER_PHRASES[this.lang] || FILLER_PHRASES['en-US'];
 
     const words: TranscriptWord[] = [];
-    const elapsedSeconds = Math.max(0.5, (performance.now() - this.startTime) / 1000);
+    const cleanTokens = rawTokens.map((t) =>
+      t.toLowerCase().replace(/^[^\w\u0900-\u097F]+|[^\w\u0900-\u097F]+$/g, '')
+    );
 
+    // Track which token indices belong to detected multi-word filler phrases
+    const fillerIndices = new Set<number>();
+
+    for (let i = 0; i < cleanTokens.length; i++) {
+      // 1. Check multi-word phrase fillers (e.g. "you know", "i mean", "so yeah")
+      for (const phrase of phraseFillers) {
+        if (i + phrase.length <= cleanTokens.length) {
+          let match = true;
+          for (let p = 0; p < phrase.length; p++) {
+            if (cleanTokens[i + p] !== phrase[p]) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            for (let p = 0; p < phrase.length; p++) {
+              fillerIndices.add(i + p);
+            }
+          }
+        }
+      }
+
+      // 2. Check single-word fillers with exact token matching (no substring matching!)
+      if (singleFillers.has(cleanTokens[i])) {
+        fillerIndices.add(i);
+      }
+
+      // 3. Contextual evaluation for "like":
+      // Distinguish when "like" is a verb/preposition vs a filler
+      if (cleanTokens[i] === 'like') {
+        const prevClean = i > 0 ? cleanTokens[i - 1] : '';
+        const isOrdinaryUsage = LIKE_NORMAL_PRECEDING_WORDS.has(prevClean);
+        if (!isOrdinaryUsage) {
+          // Used as hesitation filler
+          fillerIndices.add(i);
+        }
+      }
+    }
+
+    // Now construct TranscriptWord array and check for potential speech slips
     for (let i = 0; i < rawTokens.length; i++) {
-      const cleanToken = rawTokens[i].toLowerCase().replace(/[^\w\u0900-\u097F]/g, '');
-      const isFiller = fillers.some((f) => cleanToken === f || cleanToken.includes(f));
+      const clean = cleanTokens[i];
+      const isFiller = fillerIndices.has(i);
 
-      // Stutter or repetition check
-      const prevWord = i > 0 ? rawTokens[i - 1].toLowerCase().replace(/[^\w\u0900-\u097F]/g, '') : '';
-      const isRepetition = i > 0 && cleanToken === prevWord && cleanToken.length > 1;
+      // Check for immediate word repetition (stutter slip)
+      const prevClean = i > 0 ? cleanTokens[i - 1] : '';
+      const isRepetition = i > 0 && clean === prevClean && clean.length > 1;
+
+      // Check for potential colloquial transfers (labeled as potential issues, not definitive errors)
+      let isPotentialIssue = isRepetition;
+      let issueType: string | undefined = isRepetition ? 'Repeated Word Stumble' : undefined;
+      let suggestionText: string | undefined = isRepetition
+        ? `Consecutive repetition of "${clean}". Consider pausing cleanly.`
+        : undefined;
+
+      // Note on introductory "myself [Name]"
+      if (i === 0 && clean === 'myself' && rawTokens.length > 1) {
+        isPotentialIssue = true;
+        issueType = 'Potential Colloquial Phrasing';
+        suggestionText = 'Introductory "Myself [Name]". International standard prefers "My name is" or "I am".';
+      }
+
+      // Note on redundant "revert back"
+      if (clean === 'revert' && i + 1 < cleanTokens.length && cleanTokens[i + 1] === 'back') {
+        isPotentialIssue = true;
+        issueType = 'Potential Redundant Phrasing';
+        suggestionText = '"revert back" is redundant. Use "reply" or "follow up".';
+      }
+
+      // Note on auxiliary verb discord ("did not got")
+      if (clean === 'got' && i >= 2 && cleanTokens[i - 1] === 'not' && cleanTokens[i - 2] === 'did') {
+        isPotentialIssue = true;
+        issueType = 'Potential Auxiliary Verb Discord';
+        suggestionText = '"did not got" typically uses the base verb form ("did not get" or "did not encounter").';
+      }
 
       words.push({
-        id: `w-${i}-${cleanToken}`,
-        word: rawTokens[i],
-        timestamp: (i / Math.max(1, rawTokens.length)) * elapsedSeconds,
+        id: `w-${i}-${clean}-${Date.now() % 10000}`,
+        word: rawTokens[i], // Preserves exact recognized word verbatim
+        timestamp: undefined, // Real timestamps are only populated when verified acoustic/timeline data exists
         isFiller,
-        isWrong: isRepetition,
-        issue: isRepetition ? 'Repetition Stutter' : undefined,
-        suggestion: isRepetition ? `Avoid saying "${cleanToken}" twice in a row` : undefined,
+        isWrong: isPotentialIssue,
+        isPotentialIssue,
+        issue: issueType,
+        suggestion: suggestionText,
       });
     }
 
@@ -134,8 +270,11 @@ export class SpeechRecognitionEngine {
     this.onTranscriptUpdate?.(text, words);
 
     // Calculate real-time speed in Words Per Minute
+    const elapsedSeconds = Math.max(0.5, (performance.now() - this.startTime) / 1000);
     const wpm = Math.round((rawTokens.length / elapsedSeconds) * 60);
     this.onWpmUpdate?.(wpm);
+
+    return words;
   }
 
   public stop() {

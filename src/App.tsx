@@ -303,16 +303,19 @@ export default function App() {
 
     transcriptWords.forEach((tw) => {
       if (tw.isFiller) {
-        const clean = tw.word.toLowerCase();
-        fillerMap[clean] = (fillerMap[clean] || 0) + 1;
+        const clean = tw.word.toLowerCase().replace(/^[^\w\u0900-\u097F]+|[^\w\u0900-\u097F]+$/g, '');
+        if (clean) {
+          fillerMap[clean] = (fillerMap[clean] || 0) + 1;
+        }
       }
-      if (tw.isWrong) {
+      if (tw.isWrong || tw.isPotentialIssue) {
         wrongList.push({
           id: tw.id,
           word: tw.word,
           context: `"...${tw.word}..."`,
-          issue: (tw.issue as any) || 'Stutter',
-          suggestion: tw.suggestion || 'Avoid vocal repetition',
+          issue: (tw.issue as any) || 'Potential Slip',
+          suggestion: tw.suggestion || 'Potential speech slip or repeated word',
+          confidence: 'Tentative',
         });
       }
     });
@@ -320,7 +323,7 @@ export default function App() {
     const fillersArray: FillerWordItem[] = Object.entries(fillerMap).map(([word, count]) => ({
       word,
       count,
-      percentage: Math.round((count / transcriptWords.length) * 100),
+      percentage: Math.round((count / Math.max(1, transcriptWords.length)) * 100),
     }));
 
     setFillerWords(fillersArray);
@@ -533,20 +536,41 @@ export default function App() {
     setTranscriptText(demo.sampleTranscript);
 
     const rawTokens = demo.sampleTranscript.split(/\s+/);
+    const cleanTokens = rawTokens.map((t) => t.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, ''));
     const words: TranscriptWord[] = rawTokens.map((w, idx) => {
-      const clean = w.toLowerCase().replace(/[^\w]/g, '');
-      const isFiller = ['um', 'uh', 'basically', 'like', 'you know'].includes(clean);
-      const prev = idx > 0 ? rawTokens[idx - 1].toLowerCase().replace(/[^\w]/g, '') : '';
-      const isWrong = idx > 0 && clean === prev && clean.length > 1;
+      const clean = cleanTokens[idx];
+      const prev = idx > 0 ? cleanTokens[idx - 1] : '';
+      const next = idx + 1 < cleanTokens.length ? cleanTokens[idx + 1] : '';
+
+      // Check single fillers and phrase "you know"
+      const isSingleFiller = ['um', 'uh', 'basically'].includes(clean);
+      const isLikeFiller = clean === 'like' && !['i', 'we', 'they', 'you', 'would', 'looks', 'sound'].includes(prev);
+      const isYouKnow = (clean === 'you' && next === 'know') || (clean === 'know' && prev === 'you');
+      const isFiller = isSingleFiller || isLikeFiller || isYouKnow;
+
+      const isRepetition = idx > 0 && clean === prev && clean.length > 1;
+      const isMyselfGreeting = idx === 0 && clean === 'myself';
+      const isPotentialIssue = isRepetition || isMyselfGreeting;
+
+      let issueType: string | undefined = undefined;
+      let suggestionText: string | undefined = undefined;
+      if (isRepetition) {
+        issueType = 'Repeated Word Stumble';
+        suggestionText = `Repeated word "${clean}". Pause cleanly between words.`;
+      } else if (isMyselfGreeting) {
+        issueType = 'Potential Colloquial Phrasing';
+        suggestionText = 'Introductory "Myself [Name]". International standard prefers "My name is" or "I am".';
+      }
 
       return {
         id: `demo-w-${idx}`,
         word: w,
         timestamp: (idx / rawTokens.length) * demo.duration,
         isFiller,
-        isWrong,
-        issue: isWrong ? 'Stutter Repetition' : undefined,
-        suggestion: isWrong ? `Avoid repeating "${clean}"` : undefined,
+        isWrong: isPotentialIssue,
+        isPotentialIssue,
+        issue: issueType,
+        suggestion: suggestionText,
       };
     });
 
@@ -952,7 +976,7 @@ export default function App() {
                   tokens.map((t, idx) => ({
                     id: `drill-w-${idx}`,
                     word: t,
-                    timestamp: idx * 0.45,
+                    timestamp: undefined,
                     isFiller: false,
                     isWrong: false,
                   }))
@@ -996,6 +1020,7 @@ export default function App() {
               <LiveTranscriptViewer
                 transcriptText={transcriptText}
                 transcriptWords={transcriptWords}
+                isListening={isRecording}
               />
             </div>
           )}
@@ -1089,6 +1114,7 @@ export default function App() {
                   <LiveTranscriptViewer
                     transcriptText={transcriptText}
                     transcriptWords={transcriptWords}
+                    isListening={isRecording}
                   />
                 </div>
 
