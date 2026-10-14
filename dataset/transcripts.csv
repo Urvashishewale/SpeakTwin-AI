@@ -1,0 +1,3 @@
+sample_id,reference_pair_id,speaker_id,audio_file,original_transcript,verified_transcript,corrected_transcript,language,sample_category,recording_date,verification_status,has_uncertainty
+SMP_001_GOOD,PAIR_001,SPK_001,,My name is Urvashi Shewale.,My name is Urvashi Shewale.,My name is Urvashi Shewale.,en-US,Good Speech,,Pending Recording,false
+SMP_002_ERROR,PAIR_001,SPK_001,,My name is the Urvashi is Shewale.,My name is the Urvashi is Shewale.,My name is Urvashi Shewale.,en-US,Speech with Identified Errors,,Pending Recording,false

@@ -1,0 +1,11 @@
+{
+  "name": "Remix Remix AudioPulse - Speech \u0026 Audio Analytics Dashboard",
+  "description": "Real-time audio and speech analytics dashboard tracking pauses, speaking speed, filler and wrong words, and acoustic metrics for any audio duration.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
