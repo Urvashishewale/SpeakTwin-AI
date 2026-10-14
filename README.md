@@ -186,3 +186,4 @@ git commit -m "feat: complete Custom Speech Dataset module with paired corpus & 
 git push origin main
 ```
 To add collaborators, navigate to **Settings $\rightarrow$ Collaborators** on your GitHub repository.
+Contributed by iamprasiddhi
