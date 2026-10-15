@@ -1,3 +1,17 @@
+SpeakTwin AI
+
+🚀 Live Website
+
+🔗 Live Demo: "Open SpeakTwin AI" ( https://vercel.com/ai-divas/speak-twin-ai )
+
+📌 About the Project
+
+SpeakTwin AI analyzes speech patterns and helps users improve their speaking skills through personalized feedback and performance insights.
+
+
+
+
+
 
 # SpeakTwin AI — Speech Analytics & Custom Speech Dataset Research Platform
 
