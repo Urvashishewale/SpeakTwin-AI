@@ -1,3 +1,4 @@
+
 # SpeakTwin AI — Speech Analytics & Custom Speech Dataset Research Platform
 
 SpeakTwin AI (AudioPulse) is a real-time speech telemetry and linguistic dataset engineering platform designed for **cross-cultural public speaking, high-stakes international interviews, and speech model research**. It integrates real-time acoustic DSP, continuous multilingual speech recognition, multimodal linguistic coaching, and an empirical **Custom Speech Dataset Module**.
